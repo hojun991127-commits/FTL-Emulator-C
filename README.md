@@ -30,6 +30,17 @@
     2. Victim Block 내의 유효한(Valid) 데이터만 새로운 공간으로 복사(Copy).
     3. Victim Block을 통째로 지워(Erase) 다시 Free Block으로 확보하여 시스템 연속성 보장.
 
+### 3. Wear-Leveling (마모도 평준화) 알고리즘 도입
+* **문제:** 특정 LSN에만 쓰기가 집중되는 Hot Data 패턴 발생 시, 매핑된 특정 물리 블록(PBA)만 수명이 급격히 깎이는 편중 현상 발생.
+* **해결:** NAND의 수명을 전체적으로 상향 평준화하기 위해 두 가지 전략을 적용함.
+    1. **Dynamic Wear-Leveling:** Free Block 할당 시 단순히 순차 할당하지 않고, 가용한 블록 중 **마모도(Erase Count)가 가장 낮은 블록**을 우선 탐색하여 할당 (`allocate_free_block`).
+    2. **Static Wear-Leveling:** 블록 간 마모도 격차가 임계값(`WL_THRESHOLD`)을 초과할 경우, 업데이트가 없는 Cold Data를 강제로 새로운 블록으로 이주시킴. 비워진 건강한 블록은 다시 Hot Data를 받을 수 있도록 상태를 순환시킴.
+
+### 4. 시나리오 기반 GC 성능 최적화 검증 (Zero-Copy GC)
+* **현상:** 특정 LSN 영역만 지속적으로 덮어쓰는 극단적인 Hot Data 테스트 시나리오(`main.c`) 수행.
+* **결과 검증:** 타겟이 된 물리 블록 내부의 모든 페이지가 무효화(Invalid) 처리됨에 따라, GC 실행 시 유효 데이터 대피를 위한 추가적인 읽기/쓰기(nand_read, nand_program) 오버헤드가 **0번** 발생함을 확인.
+* **의의:** 정석적인 Greedy 기반 GC 알고리즘이 특정 워크로드(Workload)와 맞물렸을 때, 불필요한 데이터 마이그레이션이 생략되며 **쓰기 증폭(WAF)이 최소화되는 Zero-Copy 소거**가 자연스럽게 동작함을 시뮬레이션으로 입증함.
+
 ## 🚀 Execution & Log (가비지 컬렉션 동작 확인)
 무한 덮어쓰기를 통해 디스크를 꽉 채워 강제로 GC를 유발하는 테스트 결과
 
