@@ -28,19 +28,19 @@ int nand_read(int pba, int page_offset, char *buffer){
 int nand_program(int pba, int page_offset, const char* data, int lsn){
     if( pba < 0 || pba >= NUM_BLOCKS || page_offset < 0 || page_offset >= PAGES_PER_BLOCK)
         return -1;
-        NandPage *target_page = &flash_memory[pba].pages[page_offset];
+    NandPage *target_page = &flash_memory[pba].pages[page_offset];
 
-        if(target_page->status != PAGE_FREE){
-            printf("[HW ERROR] OVERWRITE NOT ALLOWED on PBA %d, Page %d! Must erase block first.\n", pba, page_offset);
-            return -1;
-        }
+    if(target_page->status != PAGE_FREE){
+        printf("[HW ERROR] OVERWRITE NOT ALLOWED on PBA %d, Page %d! Must erase block first.\n", pba, page_offset);
+        return -1;
+    }
 
-        memcpy(target_page->data, data, strlen(data) + 1);
-        target_page->lsn = lsn;
-        target_page->status = PAGE_VALID;
+    memcpy(target_page->data, data, strlen(data) + 1);
+    target_page->lsn = lsn;
+    target_page->status = PAGE_VALID;
 
-        printf("[HW] Programmed PBA %d, Page %d (LSN: %d)\n", pba, page_offset, lsn);
-        return 0;
+    printf("[HW] Programmed PBA %d, Page %d (LSN: %d)\n", pba, page_offset, lsn);
+    return 0;
 }
 
 int nand_erase(int pba){
@@ -54,4 +54,10 @@ int nand_erase(int pba){
     }
     printf("[HW] Erased Block PBA %d (Erase Count: %d)\n", pba, flash_memory[pba].erase_count);
     return 0;
+}
+
+int nand_get_erase_count(int pba){
+    if(pba < 0 || pba >= NUM_BLOCKS)
+        return -1;
+    return flash_memory[pba].erase_count;
 }

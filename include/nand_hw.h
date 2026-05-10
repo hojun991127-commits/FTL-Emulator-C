@@ -28,5 +28,5 @@ void nand_init(void);                                                   // NAND 
 int nand_read(int pba, int page_offset, char *buffer);                  // 물리 주소 읽기
 int nand_program(int pba, int page_offset, const char *data, int lsn);  // 물리 주소에 쓰기
 int nand_erase(int pba);                                                // 블록 단위 지우기
-
+int nand_get_erase_count(int pba);                                      // 블록 마모도 조회
 #endif
