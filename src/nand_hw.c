@@ -3,10 +3,12 @@
 #include "../include/nand_hw.h"
 
 static NandBlock flash_memory[NUM_BLOCKS];
+static int is_bad_block[NUM_BLOCKS];
 
 void nand_init(void){
     for(int i = 0; i < NUM_BLOCKS; ++i){
         flash_memory[i].erase_count = 0;
+        is_bad_block[i] = 0;
         for(int j = 0; j <PAGES_PER_BLOCK;++j){
             flash_memory[i].pages[j].status = PAGE_FREE;
             flash_memory[i].pages[j].lsn = -1;
@@ -16,8 +18,17 @@ void nand_init(void){
     printf("[HW] NAND Flash %d Blocks Initialized.\n", NUM_BLOCKS);
 }
 
+void nand_inject_fault(int pba){
+    if(pba >= 0 && pba < NUM_BLOCKS){
+        is_bad_block[pba] = 1;
+        printf("[HW ALERT] PBA %d is now physically Broken!\n", pba);
+    }
+}
+
 int nand_read(int pba, int page_offset, char *buffer){
     if( pba < 0 || pba >= NUM_BLOCKS || page_offset < 0 || page_offset >= PAGES_PER_BLOCK)
+        return -1;
+    if(is_bad_block[pba])
         return -1;
     NandPage *target_page = &flash_memory[pba].pages[page_offset];
 
@@ -27,6 +38,8 @@ int nand_read(int pba, int page_offset, char *buffer){
 
 int nand_program(int pba, int page_offset, const char* data, int lsn){
     if( pba < 0 || pba >= NUM_BLOCKS || page_offset < 0 || page_offset >= PAGES_PER_BLOCK)
+        return -1;
+    if(is_bad_block[pba])
         return -1;
     NandPage *target_page = &flash_memory[pba].pages[page_offset];
 
@@ -45,6 +58,8 @@ int nand_program(int pba, int page_offset, const char* data, int lsn){
 
 int nand_erase(int pba){
     if(pba < 0 || pba >= NUM_BLOCKS)
+        return -1;
+    if(is_bad_block[pba])
         return -1;
     flash_memory[pba].erase_count++;
     for(int j = 0; j < PAGES_PER_BLOCK; ++j){

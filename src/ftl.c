@@ -15,6 +15,9 @@ int block_invalid_count[NUM_BLOCKS];
 // 추가: 각 블록의 valid 페이지 저장
 int block_valid_count[NUM_BLOCKS];
 
+// 추가: 배드 블록 테이블
+int block_bad_flag[NUM_BLOCKS];
+
 static int free_pba = 0;
 static int free_page = 0;
 
@@ -25,7 +28,7 @@ static int allocate_free_block(){
 
     for(int i = 0; i < NUM_BLOCKS; ++i){
         // valid / invalid 모두 0이면 완전히 비어있는 free 블록
-        if(block_invalid_count[i] == 0 && block_valid_count[i] == 0 && i != free_pba){
+        if(block_bad_flag[i] == 0 &&  block_invalid_count[i] == 0 && block_valid_count[i] == 0 && i != free_pba){
             int erase_cnt = nand_get_erase_count(i);
             if(erase_cnt < min_erase){
                 min_erase = erase_cnt;
@@ -47,11 +50,12 @@ void ftl_init(void){
     for(int i = 0; i < NUM_BLOCKS; ++i){
         block_invalid_count[i] = 0;
         block_valid_count[i] = 0;
+        block_bad_flag[i] = 0;
     }
 
     free_pba = 0;
     free_page = 0;
-    printf("[FTL] L2P Mapping Table & Block Counters Initialized.\n");
+    printf("[FTL] L2P Mapping Table & Counters & BBT Initialized.\n");
 }
 
 int ftl_read(int lsn, char* buffer){
@@ -139,9 +143,22 @@ int ftl_write(int lsn, const char* data){
     }
 
     // 2. 새 방에 데이터 쓰기
-    int ret = nand_program(free_pba, free_page, data, lsn);
-    if(ret != 0)
-        return -1;
+    int write_status = nand_program(free_pba, free_page, data, lsn);
+    // 쓰기 시도 및 실패 감지
+    if(write_status == -1){
+        // BBM 로직 수행
+        printf("\n[FTL BBM ERROR] Runtime Bad Block detected at PBA %d!\n", free_pba);
+        block_bad_flag[free_pba] = 1;   // BBT에 불량 블록으로 영구 등록
+
+        // 새 예비 블록(OP) 긴급 할당
+        free_pba = allocate_free_block();
+        free_page = 0;
+
+        printf("[FTL BBM Rescue] Remapping LSN %d to new PBA %d...\n\n", lsn, free_pba);
+        // 새 블록에 데이터 다시 쓰기
+        nand_program(free_pba, free_page, data, lsn);
+    }
+        
     
     // 3. 맵핑 테이블 업데이트
     int new_ppn = (free_pba * PAGES_PER_BLOCK) + free_page;
