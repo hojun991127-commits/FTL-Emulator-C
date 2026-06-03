@@ -53,10 +53,10 @@ void ftl_init(void){
 
     int read_status = nand_read(META_BLOCK_PBA, 0, meta_buffer);
     // 디버깅 코드 시작 (Phase2)에서 읽어올 때
-    printf("\n[X-RAY DEBUG] nand_read returned: %d\n", read_status);
+    // printf("\n[X-RAY DEBUG] nand_read returned: %d\n", read_status);
     int temp_table[TOTAL_PAGES];
     memcpy(temp_table, meta_buffer, sizeof(int)*TOTAL_PAGES);
-    printf("[X-RAY DEBUG] Restoring check -> LSN 0 PPN: %d, LSN 1 PPN: %d\n", temp_table[0], temp_table[1]);
+    //printf("[X-RAY DEBUG] Restoring check -> LSN 0 PPN: %d, LSN 1 PPN: %d\n", temp_table[0], temp_table[1]);
     // 디버깅 코드 종료
     if(read_status != -1){
         if(temp_table[0] >= 0 || temp_table[1] >= 0){
@@ -268,7 +268,7 @@ int ftl_write(int lsn, const char* data){
 
         char meta_buffer[PAGE_SIZE];
         memset(meta_buffer, 0xFF, PAGE_SIZE);
-        printf("[X-RAY DEBUG] Saving to NAND -> LSN 0 PPN: %d, LSN 1 PPN: %d\n", l2p_table[0], l2p_table[1]);
+        // printf("[X-RAY DEBUG] Saving to NAND -> LSN 0 PPN: %d, LSN 1 PPN: %d\n", l2p_table[0], l2p_table[1]);
         memcpy(meta_buffer, l2p_table, sizeof(int)*TOTAL_PAGES);
 
         // 수정: 메타데이터 전용 LSN 식별자로 9999 부여, 에러코드와 충돌 방지

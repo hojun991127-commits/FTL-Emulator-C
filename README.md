@@ -48,20 +48,45 @@
     2. **BBT(Bad Block Table) 운영:** FTL 내부에 불량 블록을 기록하는 테이블을 생성하고, I/O 에러 발생 시 해당 블록을 즉각 영구 결번 처리.
     3. **동적 Remapping:** 쓰기 작업 중 에러가 보고되면 FTL이 이를 인터셉트하여, 안전한 예비 블록(OP)을 긴급 할당하여 데이터를 잃지 않고, 재기록(Rescue)하도록 예외 처리 로직 구현.
 
+### 6. 전원 차단 복구 (SPOR) 및 바이너리 데이터 메모리 정렬 디버깅
+* **문제:** 예기치 않은 시스템 종료 시 RAM에 존재하는 매핑 테이블이 소멸됨. 이를 방지하기 위해 L2P 배열(이진 데이터)을 낸드에 기록하는 과정에서, 레거시 코드인 `strlen` 기반 복사를 수행하여 첫 `0x00` 바이트에서 데이터가 잘리는 치명적 손상(-256 에러) 발생.
+* **해결:** 
+    1. **메타데이터 스냅샷:** 물리 블록(PBA 9)을 메타데이터 전용 공간으로 격리하고, `ftl_checkpoint`를 통해 주기적으로 상태를 영구 기록.
+    2. **로우레벨 메모리 제어:** 직접 하드웨어의 물리적 동작 원리에 맞춰, 텍스트가 아닌 바이너리 데이터를 안전하게 다루도록 `nand_program`의 `memcpy` 단위를 `PAGE_SIZE`로 명시적 고정 처리.
+    3. **데이터 충돌 방지:** 메타데이터 식별용 더미 LSN(`9999`)을 할당하여, 낸드 컨트롤러의 에러 반환 코드(`-1`)와의 논리적 충돌을 원천 차단하여 복구 신뢰성 확보.
+
 ## 🚀 Execution & Log (가비지 컬렉션 동작 확인)
-무한 덮어쓰기를 통해 디스크를 꽉 채워 강제로 GC를 유발하는 테스트 결과
+프로그램 강제 종료 후 재부팅 시 RAM 데이터 복구 테스트 결과
 
 ```bash
+$ make clean
 $ make
 $ ./ftl_sim
 
-=== NAND Flash FTL (Garbage Collection) Test ===
+=== NAND Flash FTL Sudden Power Off Recovery (SPOR) Test ===
 
-[FTL] L2P Mapping Table & Invalid Counters Initialized.
+--- [Phase 1] First Boot & Data Write ---
+[HW] NAND Flash Cold Boot Initialized (10 Blocks).
+[HW] Programmed PBA 0, Page 0 (LSN: 0)
+[HW] Programmed PBA 0, Page 1 (LSN: 1)
 
-[Test] 40번의 연속 덮어쓰기를 통해 디스크를 꽉 채워 GC를 유발합니다!
+[FTL] Triggering Metadata Checkpoint (Snapshot)...
+[HW] Erased Block PBA 9 (Erase Count: 1)
+[HW] Programmed PBA 9, Page 0 (LSN: 9999)
+[FTL] Checkpoint successfully saved to PBA 9!
 
-[FTL GC] Storage Limit Reached! Starting Garbage Collection...
-[FTL GC] Victim Block Selected: PBA 0 (Contains 4 Invalid pages)
-[HW] Erased Block PBA 0 (Erase Count: 1)
-[FTL GC] Garbage Collection Completed! Space Recovered.
+Simulating Sudden Power Off... (Data in RAM is completely lost)
+================================================================
+
+--- [Phase 2] Reboot & SPOR Trigger ---
+[HW] NAND Flash Warm Boot (Data Retained).
+[SPOR] Valid Metadata found at PBA 9. Restoring L2P Table...
+[SPOR] L2P Table Restore Complete. Next Free PBA: 1
+
+--- [Phase 3] Verification ---
+[Test] Reading LSN 0 after recovery...
+[Result] LSN 0 Data: User_Data_LSN_0
+[Test] Reading LSN 1 after recovery...
+[Result] LSN 1 Data: User_Data_LSN_1
+
+================================================================
