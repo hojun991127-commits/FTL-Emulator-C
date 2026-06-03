@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "../include/nand_hw.h"
 #include "../include/ftl.h"
 
@@ -7,7 +8,7 @@
 
 // Logical to Physical Address Mapping Table
 // key: LSN, value: PPN
-int l2p_table[TOTAL_PAGES];
+ int l2p_table[TOTAL_PAGES];
 
 // 각 블록의 쓰레기 개수 저장
 int block_invalid_count[NUM_BLOCKS];
@@ -27,6 +28,10 @@ static int allocate_free_block(){
     int min_erase = INF;
 
     for(int i = 0; i < NUM_BLOCKS; ++i){
+        // 메타데이터 전용 블럭은 일반 할당에서 제외
+        if(i == META_BLOCK_PBA)
+            continue;
+
         // valid / invalid 모두 0이면 완전히 비어있는 free 블록
         if(block_bad_flag[i] == 0 &&  block_invalid_count[i] == 0 && block_valid_count[i] == 0 && i != free_pba){
             int erase_cnt = nand_get_erase_count(i);
@@ -43,19 +48,52 @@ static int allocate_free_block(){
 void ftl_init(void){
     nand_init();
 
-    // 맵핑 테이블 초기화
-    for(int i = 0; i < TOTAL_PAGES; ++i){
-        l2p_table[i] = -1;
+    char meta_buffer[PAGE_SIZE];
+    int is_restored = 0;
+
+    int read_status = nand_read(META_BLOCK_PBA, 0, meta_buffer);
+    // 디버깅 코드 시작 (Phase2)에서 읽어올 때
+    printf("\n[X-RAY DEBUG] nand_read returned: %d\n", read_status);
+    int temp_table[TOTAL_PAGES];
+    memcpy(temp_table, meta_buffer, sizeof(int)*TOTAL_PAGES);
+    printf("[X-RAY DEBUG] Restoring check -> LSN 0 PPN: %d, LSN 1 PPN: %d\n", temp_table[0], temp_table[1]);
+    // 디버깅 코드 종료
+    if(read_status != -1){
+        if(temp_table[0] >= 0 || temp_table[1] >= 0){
+            printf("[SPOR] Valid Metadata found at PBA %d. Restoring L2P Table...\n", META_BLOCK_PBA);
+            memcpy(l2p_table, temp_table, sizeof(int)*TOTAL_PAGES);
+            is_restored = 1;
+        }
     }
+
+    if(!is_restored){
+        printf("[FTL] No valid metadata. Fresh boot initialized.\n");
+        for(int i = 0; i <TOTAL_PAGES; ++i)
+            l2p_table[i] = -1;
+    }
+
     for(int i = 0; i < NUM_BLOCKS; ++i){
         block_invalid_count[i] = 0;
         block_valid_count[i] = 0;
         block_bad_flag[i] = 0;
     }
 
-    free_pba = 0;
-    free_page = 0;
-    printf("[FTL] L2P Mapping Table & Counters & BBT Initialized.\n");
+    if(is_restored){
+        for(int i = 0; i < TOTAL_PAGES; ++i){
+            int ppn = l2p_table[i];
+            if(ppn != -1){
+                int pba = ppn/PAGES_PER_BLOCK;
+                block_valid_count[pba]++;
+            }
+        }
+        free_pba = allocate_free_block();
+        free_page = 0;
+        printf("[SPOR] L2P Table Restore Complete. Next Free PBA: %d\n", free_pba);
+    }
+    else{
+        free_pba = 0;
+        free_page = 0;
+    }
 }
 
 int ftl_read(int lsn, char* buffer){
@@ -222,4 +260,23 @@ int ftl_write(int lsn, const char* data){
         // GC 이후 남은 빈 블록 중 최적의 블록으로 다시 세팅
         if(free_page == 0)
             free_pba = allocate_free_block();
+    }
+
+    int ftl_checkpoint(void){
+        printf("\n[FTL] Triggering Metadata Checkpoint (Snapshot)...\n");
+        nand_erase(META_BLOCK_PBA);
+
+        char meta_buffer[PAGE_SIZE];
+        memset(meta_buffer, 0xFF, PAGE_SIZE);
+        printf("[X-RAY DEBUG] Saving to NAND -> LSN 0 PPN: %d, LSN 1 PPN: %d\n", l2p_table[0], l2p_table[1]);
+        memcpy(meta_buffer, l2p_table, sizeof(int)*TOTAL_PAGES);
+
+        // 수정: 메타데이터 전용 LSN 식별자로 9999 부여, 에러코드와 충돌 방지
+        if(nand_program(META_BLOCK_PBA, 0, meta_buffer, 9999) == 0){
+            printf("[FTL] Checkpoint successfully saved to PBA %d!\n\n", META_BLOCK_PBA);
+            return 0;
+        }
+
+        printf("[FTL ERROR] Checkpoint save failed.\n\n");
+        return -1;
     }

@@ -6,6 +6,13 @@ static NandBlock flash_memory[NUM_BLOCKS];
 static int is_bad_block[NUM_BLOCKS];
 
 void nand_init(void){
+    // 추가: 웜 부트 처리를 위한 정적 변수
+    static int is_intialized = 0;
+    if(is_intialized){
+        printf("[HW] NAND Flash Warm Boot (Data Retained).\n");
+        return;
+    }
+    
     for(int i = 0; i < NUM_BLOCKS; ++i){
         flash_memory[i].erase_count = 0;
         is_bad_block[i] = 0;
@@ -15,6 +22,7 @@ void nand_init(void){
             memset(flash_memory[i].pages[j].data, 0xFF, PAGE_SIZE);
         }
     }
+    is_intialized = 1;
     printf("[HW] NAND Flash %d Blocks Initialized.\n", NUM_BLOCKS);
 }
 
@@ -47,8 +55,10 @@ int nand_program(int pba, int page_offset, const char* data, int lsn){
         printf("[HW ERROR] OVERWRITE NOT ALLOWED on PBA %d, Page %d! Must erase block first.\n", pba, page_offset);
         return -1;
     }
-
-    memcpy(target_page->data, data, strlen(data) + 1);
+    // 수정 전 : memcpy(target_page->data, data, strlen(data) + 1);
+    // 수정 후 : memcpy(target_page->data, data, PAGE_SIZE);
+    // 문자열 길이 측정(strlen)을 없애고, 무조건 페이지 단위(PAGE_SIZE) 512바이트 복사
+    memcpy(target_page->data, data, PAGE_SIZE);
     target_page->lsn = lsn;
     target_page->status = PAGE_VALID;
 

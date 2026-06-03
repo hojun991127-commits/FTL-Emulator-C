@@ -7,4 +7,5 @@
 
 #define TOTAL_PAGES     (PAGES_PER_BLOCK * NUM_BLOCKS)
 
+#define META_BLOCK_PBA  9
 #endif

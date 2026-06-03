@@ -1,26 +1,51 @@
 #include <stdio.h>
+#include <string.h>
 #include "../include/ftl.h"
-#include "../include/nand_hw.h" // 결함 주입 함수를 쓰기 위해 추가
+#include "../include/nand_hw.h"
 
 int main() {
-    printf("=== NAND Flash FTL Wear-Leveling Test ===\n\n");
+    printf("=== NAND Flash FTL Sudden Power Off Recovery (SPOR) Test ===\n\n");
+
+    // 1. 첫 번째 부팅 및 데이터 쓰기
+    printf("--- [Phase 1] First Boot & Data Write ---\n");
     ftl_init();
 
-    // 의도적인 하드웨어 결함 주입
-    printf("\n[Test] Injecting physical fault to PBA 2...\n");
-    nand_inject_fault(2);
-    printf("================================================\n\n");
+    ftl_write(0, "User_Data_LSN_0");
+    ftl_write(1, "User_Data_LSN_1");
 
-    char temp_data[50];
-
-    //데이터를 연속으로 쓰면서 PBA 0 -> PBA 1 -> PBA 2(고장!) 차례가 올 때를 관찰
-    printf("[Test] Writing sequential data to trigger Bad Block...\n");
-
-    for(int i = 0; i < 12; ++i){
-        sprintf(temp_data, "Data_Chunk_%d", i);
-        ftl_write(i, temp_data);
-    }
+    // 💾 전원이 꺼지기 전 매핑 테이블 스냅샷 저장
+    ftl_checkpoint();
     
-    printf("\n================================================\n");
+    printf("Simulating Sudden Power Off... (Data in RAM is completely lost)\n");
+    printf("================================================================\n\n");
+
+
+    // 2. 두 번째 부팅 (재부팅 시뮬레이션)
+    printf("--- [Phase 2] Reboot & SPOR Trigger ---\n");
+    ftl_init(); 
+
+    // 3. 복구 검증 (지도가 잘 살아났는지 Read 테스트)
+    printf("\n--- [Phase 3] Verification ---\n");
+    char read_buffer[4096];
+    
+    printf("[Test] Reading LSN 0 after recovery...\n");
+    int ppn_0 = l2p_table[0];
+    if (ppn_0 != -1) {
+        nand_read(ppn_0 / PAGES_PER_BLOCK, ppn_0 % PAGES_PER_BLOCK, read_buffer);
+        printf("[Result] LSN 0 Data: %s\n", read_buffer);
+    } else {
+        printf("[Result] Fail : LSN 0 Mapping lost.\n");
+    }
+
+    printf("[Test] Reading LSN 1 after recovery...\n");
+    int ppn_1 = l2p_table[1];
+    if (ppn_1 != -1) {
+        nand_read(ppn_1 / PAGES_PER_BLOCK, ppn_1 % PAGES_PER_BLOCK, read_buffer);
+        printf("[Result] LSN 1 Data: %s\n", read_buffer);
+    } else {
+        printf("[Result] Fail : LSN 1 Mapping lost.\n");
+    }
+
+    printf("\n================================================================\n");
     return 0;
 }
